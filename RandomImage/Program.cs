@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.SqlTypes;
+using System.IO;
 using System.Drawing;
 using System.Drawing.Imaging;
 using CoolConsole;
-using CoolConsole.MenuItemTemplate;
+using CoolConsole.MenuItems;
+using CoolConsole.Aditonal;
+using System.Security.Policy;
 
 namespace RandomImage
 {
@@ -15,30 +17,30 @@ namespace RandomImage
 		{
 			bool testmode = false;
 			int selected = 5;
-			Console.WriteLine("Random image Creator V3");
+			Console.WriteLine("Random image Creator V4");
 			Console.WriteLine("Press any key to continue");
 			if (!testmode)
 			{
 				Console.ReadKey(true);
 				List<MenuItem> menuItems = new List<MenuItem>
 				{
-					new TextboxMenuItem("Seed of Image",""),
-					new TextboxMenuItem("Width",""),
-					new TextboxMenuItem("Height",""),
+					new NumboxMenuItem("Seed of Image",0),
+					new NumboxMenuItem("Width",512),
+					new NumboxMenuItem("Height",512),
 					new MenuItem("Fully Random"),
 					new MenuItem("Avraged Random"),
 					new MenuItem("Sequential Avraged Random"),
 					new MenuItem("Perlin Noise")
 				};
 				ReturnCode returnCode = Menu.Show(menuItems);
-				seed = int.Parse(returnCode.Textboxes[0]._Text);
-				width = int.Parse(returnCode.Textboxes[1]._Text);
-				height = int.Parse(returnCode.Textboxes[2]._Text);
+				seed = returnCode.Numboxes[0];
+				width = returnCode.Numboxes[1];
+				height = returnCode.Numboxes[2];
 				selected = returnCode.SelectedMenuItem;
 			}
 			else
 			{
-				seed = 2; width = 920; height = 1080;
+				seed = 2137; width = 1920; height = 1080;
 			}
 			if (selected == 3)
 			{
@@ -52,23 +54,26 @@ namespace RandomImage
 			{
 				CreateRandomImageWithScanLines();
 			}
-            if (selected == 6)
-            {
-                CreateRandomPerlinNoise();
-            }
-        }
+			if (selected == 6)
+			{
+				CreateRandomPerlinNoise();
+			}
+		}
 
 		static void CreateRandomImageWithLines()
 		{
 			Random random = new Random(seed);
 			Bitmap bitmap = new Bitmap(width, height);
+			int goal = bitmap.Height * bitmap.Width;
 			Color lastcolor = Color.FromArgb(random.Next(0, 255), random.Next(0, 255), random.Next(0, 255));
 			for (int x = 0; x < bitmap.Height; x++)
 			{
 				for (int y = 0; y < bitmap.Width; y++)
 				{
 					bitmap.SetPixel(y, x, lastcolor);
-					lastcolor = GetRandom(lastcolor, random);
+					lastcolor = ColorCalculations.GetRandom(lastcolor, random);
+					int progress = (x * bitmap.Width) + y;
+					ProgressReporter(progress, goal, "Generating...");
 				}
 			}
 			Image image = bitmap;
@@ -78,11 +83,14 @@ namespace RandomImage
 		{
 			Random random = new Random(seed);
 			Bitmap bitmap = new Bitmap(width, height);
+			int goal = bitmap.Height * bitmap.Width;
 			for (int x = 0; x < bitmap.Height; x++)
 			{
 				for (int y = 0; y < bitmap.Width; y++)
 				{
 					bitmap.SetPixel(y, x, Color.FromArgb(random.Next(0, 255), random.Next(0, 255), random.Next(0, 255)));
+					int progress = (x * bitmap.Width) + y;
+					ProgressReporter(progress, goal, "Generating...");
 				}
 			}
 			Image image = bitmap;
@@ -92,6 +100,7 @@ namespace RandomImage
 		{
 			Random random = new Random(seed);
 			Bitmap bitmap = new Bitmap(width, height);
+			int goal = bitmap.Height * bitmap.Width;
 			Color lastcolor = Color.FromArgb(random.Next(0, 255), random.Next(0, 255), random.Next(0, 255));
 			#region Initial Color Sampling
 			for (int x = 0; x < bitmap.Height; x += 2)
@@ -99,39 +108,47 @@ namespace RandomImage
 				for (int y = 0; y < bitmap.Width; y += 2)
 				{
 					bitmap.SetPixel(y, x, lastcolor);
-					lastcolor = GetRandom(lastcolor, random);
+					lastcolor = ColorCalculations.GetRandom(lastcolor, random);
+					int progress = (x * bitmap.Width) + y;
+					ProgressReporter(progress, goal, "Initial Color Sampling...");
 				}
 			}
 			#endregion
+			lastproc = -1;
 			#region Horizontal Sampling
 			for (int x = 0; x < bitmap.Height; x += 2)
 			{
 				for (int y = 1; y < bitmap.Width; y += 2)
 				{
 					Color left = bitmap.GetPixel(y - 1, x);
-					Color right = ColorError(random);
+					Color right = ColorCalculations.ColorError(random);
 					if ((y + 1) < bitmap.Width)
 					{
 						right = bitmap.GetPixel(y + 1, x);
 					}
-					bitmap.SetPixel(y, x, AvrageColor(left, right));
-					lastcolor = GetRandom(lastcolor, random);
+					bitmap.SetPixel(y, x, ColorCalculations.AvrageColor(left, right));
+					lastcolor = ColorCalculations.GetRandom(lastcolor, random);
+					int progress = (x * bitmap.Width) + y;
+					ProgressReporter(progress, goal, "Horizontal Sampling...");
 				}
 			}
 			#endregion
+			lastproc = -1;
 			#region Vertical Sampling
 			for (int x = 1; x < bitmap.Height; x += 2)
 			{
 				for (int y = 0; y < bitmap.Width; y++)
 				{
 					Color left = bitmap.GetPixel(y, x - 1);
-					Color right = ColorError(random);
+					Color right = ColorCalculations.ColorError(random);
 					if ((x + 1) < bitmap.Height)
 					{
 						right = bitmap.GetPixel(y, x + 1);
 					}
-					bitmap.SetPixel(y, x, AvrageColor(left, right));
-					lastcolor = GetRandom(lastcolor, random);
+					bitmap.SetPixel(y, x, ColorCalculations.AvrageColor(left, right));
+					lastcolor = ColorCalculations.GetRandom(lastcolor, random);
+					int progress = (x * bitmap.Width) + y;
+					ProgressReporter(progress, goal, "Vertical Sampling...");
 				}
 			}
 			#endregion
@@ -140,62 +157,39 @@ namespace RandomImage
 		}
 		static void CreateRandomPerlinNoise()
 		{
-            Random random = new Random(seed);
-            Bitmap bitmap = new Bitmap(width, height);
+			Random random = new Random(seed);
+			Bitmap bitmap = new Bitmap(width, height);
+			int goal = bitmap.Height * bitmap.Width;
 			Color lastcolor = Color.Black;
-            for (int x = 0; x < bitmap.Height; x++)
-            {
-                for (int y = 0; y < bitmap.Width; y++)
-                {
-					lastcolor = GetColorGraySpace(lastcolor, random);
-                    bitmap.SetPixel(y, x, lastcolor);
-                }
-            }
-            Image image = bitmap;
-            image.Save("image.png", ImageFormat.Png);
-        }
-		#region Aditional Math
-		static Color GetRandom(Color color, Random random)
-		{
-			int r, g, b;
-			r = Avrage(color.R, random.Next(0, 255));
-			g = Avrage(color.G, random.Next(0, 255));
-			b = Avrage(color.B, random.Next(0, 255));
-			color = Color.FromArgb(r,g,b);
-			return color;
-		}
-		static int Avrage(int num1,int num2)
-		{
-			int sum = num1 + num2;
-			sum = sum / 2;
-			return sum;
-		}
-		static Color AvrageColor(Color color1, Color color2)
-		{
-			int r, g, b;
-			r = Avrage(color1.R, color2.R);
-			g = Avrage(color1.G, color2.R);
-			b = Avrage(color1.B, color2.R);
-			return Color.FromArgb(r, g, b);
-		}
-		static Color ColorError(Random random)
-		{
-			if (random.Next(0,100) > 49)
+			for (int x = 0; x < bitmap.Height; x++)
 			{
-				return Color.Pink;
+				for (int y = 0; y < bitmap.Width; y++)
+				{
+					lastcolor = ColorCalculations.GetColorGraySpace(lastcolor, random);
+					bitmap.SetPixel(y, x, lastcolor);
+					int progress = (x * bitmap.Width) + y;
+					ProgressReporter(progress, goal, "Generating...");
+				}
 			}
-			return Color.Black;
+			Image image = bitmap;
+			image.Save("image.png", ImageFormat.Png);
 		}
-		static Color GetColorGraySpace(Color color, Random random)
+		static int lastproc = -1;
+		static void ProgressReporter(int value, int max, string msg)
 		{
-            int r, g, b;
-			int randome = (int)(random.Next(0, 10) * 25.5);
-            r = Avrage(color.R, randome);
-            g = Avrage(color.G, randome);
-            b = Avrage(color.B, randome);
-            color = Color.FromArgb(r, g, b);
-            return color;
-        }
-		#endregion
+			int proc = (value * 100) / max;
+			if (lastproc == -1)
+			{
+				Console.Clear();
+			}
+			if (proc > lastproc)
+			{
+				Console.CursorLeft = 0;
+				Console.CursorTop = 0;
+				Console.WriteLine(msg);
+				ProgressBar.Show(value, max, 30,true);
+				lastproc = proc;
+			}
+		}
 	}
 }
